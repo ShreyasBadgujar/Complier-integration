@@ -2,13 +2,14 @@ import React, { useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Play, Trash2 } from "lucide-react";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+
 } from "recharts";
 
 // 🔹 Supported Languages with Judge0 IDs
@@ -35,6 +36,12 @@ function analyzeComplexity(code) {
     }
   }
 
+  // Detect halving loop (O(log n))
+  const hasLogLoop =
+    /\bn\s*=\s*n\s*\/\s*2\b/.test(code) ||
+    /\bn\s*=\s*n\s*>>\s*1\b/.test(code) ||
+    /while\s*\([^)]*\/\s*2[^)]*\)/.test(code);
+
   // Detect loop nesting
   let maxDepth = 0;
   let currentDepth = 0;
@@ -50,11 +57,20 @@ function analyzeComplexity(code) {
     }
   }
 
-  // Time Complexity
+  // 🔹 Time Complexity
   let time = "O(1)";
+
   if (isRecursive) {
-    if (maxDepth > 0) time = "O(n * 2^n)";
-    else time = "O(2^n)";
+    if (/n\s*\/\s*2/.test(code) || /n\s*>>\s*1/.test(code)) {
+      time = "O(log n)"; // recursive halving → binary search style
+    } else if (maxDepth > 0) {
+      time = "O(n * 2^n)";
+    } else {
+      time = "O(2^n)";
+    }
+  } else if (hasLogLoop) {
+    if (maxDepth > 1) time = "O(n log n)"; // nested loop with halving
+    else time = "O(log n)";
   } else {
     if (maxDepth === 1) time = "O(n)";
     if (maxDepth === 2) time = "O(n^2)";
@@ -62,55 +78,75 @@ function analyzeComplexity(code) {
     if (maxDepth >= 4) time = `O(n^${maxDepth})`;
   }
 
-  // Space Complexity (naive)
+  // 🔹 Space Complexity (naive)
   let space = code.includes("vector") || code.includes("new") ? "O(n)" : "O(1)";
 
   return { time, space };
 }
 
-// 🔹 Map Big-O to numeric values
-const mapComplexity = (notation) => {
-  switch (notation) {
-    case "O(1)": return 1;
-    case "O(log n)": return 2;
-    case "O(n)": return 3;
-    case "O(n log n)": return 4;
-    case "O(n^2)": return 5;
-    case "O(n^3)": return 6;
-    case "O(2^n)": return 7;
-    default: return 8;
-  }
+
+
+// Map Big-O to generator function
+const complexityFunctions = {
+  "O(1)": (n) => 1,
+  "O(log n)": (n) => Math.log2(n),
+  "O(n)": (n) => n,
+  "O(n log n)": (n) => n * Math.log2(n),
+  "O(n^2)": (n) => n * n,
+  "O(n^3)": (n) => n * n * n,
+  "O(2^n)": (n) => Math.pow(2, n),
 };
 
-// 🔹 Recharts Component
+// Generate data for selected complexity
+function generateData(complexity) {
+  const fn = complexityFunctions[complexity];
+  if (!fn) return [];
+
+  const data = [];
+  for (let n = 1; n <= 10; n++) {
+    data.push({ n, steps: Math.round(fn(n)) });
+  }
+  return data;
+}
+
 function ComplexityChart({ analysis }) {
-  const data = [
-    { name: "Time", value: mapComplexity(analysis.time) },
-    { name: "Space", value: mapComplexity(analysis.space) },
-  ];
+  const data = generateData(analysis.time); // plot based on TIME complexity
 
   return (
     <div className="bg-[#252526] border border-[#3c3c3c] rounded-xl p-4 mt-6">
-      <h2 className="text-lg font-semibold text-yellow-400">
-        Static Complexity Estimate
+      <h2 className="text-lg font-semibold text-yellow-400 mb-2">
+        Complexity Projection
       </h2>
-      <ResponsiveContainer width="100%" height={250}>
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-          <XAxis dataKey="name" stroke="#aaa" />
-          <YAxis stroke="#aaa" />
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data}>
+          <CartesianGrid stroke="#444" />
+          <XAxis
+            dataKey="n"
+            stroke="#aaa"
+            label={{ value: "Input Size (n)", position: "insideBottom", offset: -5, fill: "#aaa" }}
+          />
+          <YAxis
+            stroke="#aaa"
+            label={{ value: "Steps", angle: -90, position: "insideLeft", fill: "#aaa" }}
+          />
           <Tooltip />
-          <Bar dataKey="value" fill="#22c55e" radius={[6, 6, 0, 0]} />
-        </BarChart>
+          <Line
+            type="monotone"
+            dataKey="steps"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            dot={false}
+          />
+        </LineChart>
       </ResponsiveContainer>
+
       <div className="text-slate-400 text-sm mt-3">
-        Time: <span className="text-slate-100">{analysis.time}</span> | Space:{" "}
-        <span className="text-slate-100">{analysis.space}</span>
+        Time: <span className="text-slate-100">{analysis.time}</span> | 
+        Space: <span className="text-slate-100">{analysis.space}</span>
       </div>
     </div>
   );
 }
-
 // 🔹 Main Component
 export default function CodeCompiler() {
   const [language, setLanguage] = useState(languages[0]); // Default: C++
